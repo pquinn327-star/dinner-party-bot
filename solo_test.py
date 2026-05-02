@@ -269,21 +269,37 @@ async def run_game(num_players: int, auto: bool) -> None:
             await db.eliminate_player(db_path, game_id, pending["target_id"])
         await db.resolve_guess(db_path, pending_id)
 
-        # Advance turn or end game
+        # Correct → same player goes again; Wrong → advance rotation
         g = await db.get_active_game(db_path, chat_id)
-        next_player = await game.advance_turn(db_path, g)
-        if next_player is None:
+        if pending["is_correct"]:
             alive_now = await game.alive_players(db_path, game_id)
-            if len(alive_now) == 1:
-                winner = alive_now[0]
-                await db.set_winner(db_path, game_id, winner["user_id"])
-                await db.set_last_winner(db_path, chat_id, winner["user_id"])
-                winner_msg = messages.render_winner(None, winner=winner["display_name"])
-                banner("GAME OVER")
-                group(html_to_console(winner_msg))
-            else:
-                banner("GAME ENDED (no winner)")
-            break
+            if len(alive_now) <= 1:
+                if len(alive_now) == 1:
+                    winner = alive_now[0]
+                    await db.set_winner(db_path, game_id, winner["user_id"])
+                    await db.set_last_winner(db_path, chat_id, winner["user_id"])
+                    winner_msg = messages.render_winner(None, winner=winner["display_name"])
+                    banner("GAME OVER")
+                    group(html_to_console(winner_msg))
+                else:
+                    banner("GAME ENDED (no winner)")
+                break
+            group(f"🎯 @{current['username']}, you're on a streak — guess again!")
+            # turn index stays the same; loop continues with same current_uid
+        else:
+            next_player = await game.advance_turn(db_path, g)
+            if next_player is None:
+                alive_now = await game.alive_players(db_path, game_id)
+                if len(alive_now) == 1:
+                    winner = alive_now[0]
+                    await db.set_winner(db_path, game_id, winner["user_id"])
+                    await db.set_last_winner(db_path, chat_id, winner["user_id"])
+                    winner_msg = messages.render_winner(None, winner=winner["display_name"])
+                    banner("GAME OVER")
+                    group(html_to_console(winner_msg))
+                else:
+                    banner("GAME ENDED (no winner)")
+                break
 
         if not auto:
             input(f"\n{C.DIM}[press Enter for next turn]{C.RESET}")

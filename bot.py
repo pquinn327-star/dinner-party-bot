@@ -722,36 +722,69 @@ async def _resolve_guess(context: ContextTypes.DEFAULT_TYPE,
             query.message.text + "\n\n✅ Resolved and announced."
         )
 
-    # Re-fetch game then advance turn or end game
+    # Re-fetch game after any state changes
     g = await _get_game_by_id(g["id"])
-    next_player = await game.advance_turn(DB_PATH, g)
 
-    if next_player is None:
-        # Game over
+    if is_correct:
+        # Correct guess: check if the game is now over, otherwise
+        # the SAME player goes again (streak rule).
         alive = await game.alive_players(DB_PATH, g["id"])
-        if len(alive) == 1:
-            winner = alive[0]
-            await db.set_winner(DB_PATH, g["id"], winner["user_id"])
-            await db.set_last_winner(DB_PATH, g["chat_id"], winner["user_id"])
-            winner_msg = messages.render_winner(
-                settings.get("msg_winner"),
-                winner=game.player_mention_html(winner),
-            )
-            await context.bot.send_message(
-                g["chat_id"], winner_msg, parse_mode=ParseMode.HTML
-            )
-        else:
-            await db.update_game_state(DB_PATH, g["id"], db.STATE_OVER)
-            await context.bot.send_message(g["chat_id"], "Game ended.")
-        return
+        if len(alive) <= 1:
+            if len(alive) == 1:
+                winner = alive[0]
+                await db.set_winner(DB_PATH, g["id"], winner["user_id"])
+                await db.set_last_winner(DB_PATH, g["chat_id"], winner["user_id"])
+                winner_msg = messages.render_winner(
+                    settings.get("msg_winner"),
+                    winner=game.player_mention_html(winner),
+                )
+                await context.bot.send_message(
+                    g["chat_id"], winner_msg, parse_mode=ParseMode.HTML
+                )
+            else:
+                await db.update_game_state(DB_PATH, g["id"], db.STATE_OVER)
+                await context.bot.send_message(g["chat_id"], "Game ended.")
+            return
 
-    # Otherwise announce next turn
-    await context.bot.send_message(
-        g["chat_id"],
-        f"🎯 {game.player_mention_html(next_player)}, it's your turn.\n"
-        f"Make your guess: <code>/guess @player Guest Name</code>",
-        parse_mode=ParseMode.HTML,
-    )
+        # Same player goes again
+        current_player = await db.get_player(DB_PATH, g["id"], guesser["user_id"])
+        await context.bot.send_message(
+            g["chat_id"],
+            f"🎯 {game.player_mention_html(current_player)}, you're on a streak — guess again!\n"
+            f"<code>/guess @player Guest Name</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        await _send_target_picker_dm(context, g, current_player)
+
+    else:
+        # Wrong guess: advance to the next player in rotation.
+        next_player = await game.advance_turn(DB_PATH, g)
+
+        if next_player is None:
+            alive = await game.alive_players(DB_PATH, g["id"])
+            if len(alive) == 1:
+                winner = alive[0]
+                await db.set_winner(DB_PATH, g["id"], winner["user_id"])
+                await db.set_last_winner(DB_PATH, g["chat_id"], winner["user_id"])
+                winner_msg = messages.render_winner(
+                    settings.get("msg_winner"),
+                    winner=game.player_mention_html(winner),
+                )
+                await context.bot.send_message(
+                    g["chat_id"], winner_msg, parse_mode=ParseMode.HTML
+                )
+            else:
+                await db.update_game_state(DB_PATH, g["id"], db.STATE_OVER)
+                await context.bot.send_message(g["chat_id"], "Game ended.")
+            return
+
+        await context.bot.send_message(
+            g["chat_id"],
+            f"🎯 {game.player_mention_html(next_player)}, it's your turn.\n"
+            f"<code>/guess @player Guest Name</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        await _send_target_picker_dm(context, g, next_player)
 
 
 async def _get_game_by_id(game_id: int) -> dict | None:
