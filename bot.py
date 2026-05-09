@@ -70,8 +70,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     else:
         await update.message.reply_html(
             "👋 Dinner Party bot is here.\n\n"
-            "<b>Setup:</b> Have one person run /sethost — they'll moderate.\n"
-            "<b>Play:</b> The host runs /newgame to start a round.\n\n"
+            "Anyone can run /newgame to start a round — you'll be the host for that game.\n\n"
             "Type /help for the full command list."
         )
 
@@ -79,17 +78,15 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = (
         "<b>Commands</b>\n\n"
-        "<b>Setup (group):</b>\n"
-        "/sethost — make yourself the host, or reply to someone with /sethost to make them host\n\n"
         "<b>Game flow (group):</b>\n"
-        "/newgame — host: open a new submission window\n"
+        "/newgame — anyone can start a new game; you become the host for that round\n"
         "/closesubmissions — host: end submission window early\n"
         "/cancelgame — host: abort the current game\n"
         "/status — see current game state\n"
         "/guess @player Guest Name — make your guess on your turn\n\n"
         "<b>During submission (DM the bot):</b>\n"
         "Just send the name of your guest. That's it.\n\n"
-        "<b>Customizing announcements (group, host only):</b>\n"
+        "<b>Customizing announcements (host only):</b>\n"
         "/setmsg correct &lt;template&gt;\n"
         "/setmsg wrong &lt;template&gt;\n"
         "/setmsg announce &lt;template&gt;\n"
@@ -132,15 +129,6 @@ async def cmd_newgame(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     user = update.effective_user
-    settings = await db.get_or_create_settings(DB_PATH, chat.id)
-    if settings["host_user_id"] is None:
-        await update.message.reply_text(
-            "No host has been set yet. Have someone run /sethost first."
-        )
-        return
-    if settings["host_user_id"] != user.id:
-        await update.message.reply_text("Only the host can start a new game.")
-        return
 
     existing = await db.get_active_game(DB_PATH, chat.id)
     if existing:
@@ -155,9 +143,11 @@ async def cmd_newgame(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     bot_username = (await context.bot.get_me()).username
     minutes = SUBMISSION_WINDOW_SECONDS // 60
+    host_name = user.first_name or user.username or "the host"
 
     await update.message.reply_html(
         f"🍽️ <b>A new Dinner Party is forming.</b>\n\n"
+        f"🎩 <b>{host_name}</b> is the host for this round.\n\n"
         f"DM me (@{bot_username}) the name of the guest you're bringing. "
         f"You have <b>{minutes} minute(s)</b>.\n\n"
         f"Min players: {MIN_PLAYERS} • Max: {MAX_PLAYERS}\n"
@@ -849,9 +839,9 @@ async def cmd_setmsg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     chat = update.effective_chat
     if chat.type == ChatType.PRIVATE:
         return
-    settings = await db.get_or_create_settings(DB_PATH, chat.id)
-    if settings["host_user_id"] != update.effective_user.id:
-        await update.message.reply_text("Only the host can set message templates.")
+    g = await db.get_active_game(DB_PATH, chat.id)
+    if not g or g["host_user_id"] != update.effective_user.id:
+        await update.message.reply_text("Only the current game's host can set message templates.")
         return
     if len(context.args) < 2:
         await update.message.reply_text(
@@ -871,9 +861,9 @@ async def cmd_resetmsg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     chat = update.effective_chat
     if chat.type == ChatType.PRIVATE:
         return
-    settings = await db.get_or_create_settings(DB_PATH, chat.id)
-    if settings["host_user_id"] != update.effective_user.id:
-        await update.message.reply_text("Only the host can reset templates.")
+    g = await db.get_active_game(DB_PATH, chat.id)
+    if not g or g["host_user_id"] != update.effective_user.id:
+        await update.message.reply_text("Only the current game's host can reset templates.")
         return
     if not context.args:
         await update.message.reply_text("Usage: /resetmsg <correct|wrong|announce|winner>")
