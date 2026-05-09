@@ -1,0 +1,22 @@
+# Fly.io configuration for Dinner Party bot
+app = "dinner-party-bot"
+primary_region = "ewr"  # Newark — change to nearest: ord, lax, lhr, cdg, etc.
+
+[build]
+
+[env]
+  DATABASE_PATH = "/data/dinner_party.db"
+  SUBMISSION_WINDOW_SECONDS = "900"
+  MIN_PLAYERS = "3"
+  MAX_PLAYERS = "8"
+
+# This is a worker (no HTTP traffic) — no services block needed.
+# The free tier allows one always-on Machine.
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+
+[[mounts]]
+  source = "dinner_party_data"
+  destination = "/data"
